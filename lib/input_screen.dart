@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'map_screen.dart';
 
 class InputScreen extends StatefulWidget {
   const InputScreen({super.key});
@@ -12,45 +13,61 @@ class InputScreen extends StatefulWidget {
 class _InputScreenState extends State<InputScreen> {
   final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
-  String responseText = '';
+  bool isLoading = false;
 
   Future<void> sendRequest() async {
-    final String from = fromController.text;
-    final String to = toController.text;
+    final String from = fromController.text.trim();
+    final String to = toController.text.trim();
 
     if (from.isEmpty || to.isEmpty) {
-      setState(() {
-        responseText = 'Заполните оба поля';
-      });
+      _showSnackBar('Заполни оба поля');
       return;
     }
 
-    final url = Uri.parse('http://10.0.2.2:3000/route?from=$from&to=$to');
-    
+    setState(() => isLoading = true);
+
     try {
+      final url = Uri.parse('http://10.0.2.2:3000/route?from=$from&to=$to');
       final response = await http.get(url);
+
       if (response.statusCode == 200) {
-        setState(() {
-          responseText = 'Ответ: ${response.body}';
-        });
-        print('Ответ от сервера: ${response.body}');
+        final data = jsonDecode(response.body);
+        
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MapScreen(
+              fromLat: data['from']['lat'],
+              fromLon: data['from']['lon'],
+              toLat: data['to']['lat'],
+              toLon: data['to']['lon'],
+              fromName: data['from']['name'],
+              toName: data['to']['name'],
+            ),
+          ),
+        );
       } else {
-        setState(() {
-          responseText = 'Ошибка сервера: ${response.statusCode}';
-        });
+        _showSnackBar('Ошибка сервера: ${response.statusCode}');
       }
     } catch (e) {
-      setState(() {
-        responseText = 'Ошибка соединения: $e';
-      });
+      _showSnackBar('Ошибка соединения: $e');
+    } finally {
+      setState(() => isLoading = false);
     }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Построить маршрут'),
+        title: const Text('Планировщик маршрута'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -73,11 +90,11 @@ class _InputScreenState extends State<InputScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: sendRequest,
-              child: const Text('Построить маршрут'),
+              onPressed: isLoading ? null : sendRequest,
+              child: isLoading
+                  ? const CircularProgressIndicator()
+                  : const Text('Построить маршрут'),
             ),
-            const SizedBox(height: 24),
-            Text(responseText),
           ],
         ),
       ),
