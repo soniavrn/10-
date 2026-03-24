@@ -1,4 +1,5 @@
 import { pool, testConnection } from './db.js';
+import 'dotenv/config';  // если dotenv установлен в корне
 
 async function main() {
     console.log('🔄 Запуск проверки...');
