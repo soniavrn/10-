@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта с маршрутами — Яндекс</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; }
+        .header { background: #2196F3; color: white; padding: 15px 20px; text-align: center; }
+        .controls { padding: 15px 20px; background: #f5f5f5; display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 2px solid #ddd; }
+        .controls button { padding: 10px 20px; font-size: 14px; cursor: pointer; border: none; border-radius: 5px; background: white; border: 1px solid #ccc; transition: 0.3s; }
+        .controls button:hover { background: #e3f2fd; }
+        .controls button.active { background: #2196F3; color: white; }
+        .controls button.danger { background: #f44336; color: white; }
+        #info { padding: 12px 20px; background: #fff3cd; border-bottom: 1px solid #ddd; font-size: 14px; }
+        #map { width: 100%; height: calc(100vh - 180px); min-height: 500px; }
+        .stats { padding: 10px 20px; background: #e8f5e9; border-top: 1px solid #ddd; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>🗺️ Построение маршрутов на карте</h1></div>
+    
+    <div class="controls">
+        <button id="btnRoute" onclick="startRouteMode()">🛣️ Начать маршрут</button>
+        <button onclick="addPoint()">➕ Добавить точку</button>
+        <button onclick="buildRouteNow()">✅ Построить</button>
+        <button onclick="resetRoute()">↩️ Сброс</button>
+        <button class="danger" onclick="clearAll()">🗑️ Очистить всё</button>
+    </div>
+    
+    <div id="info">👉 Нажмите «Начать маршрут», затем кликните по карте 2+ раза</div>
+    <div id="map"></div>
+    <div class="stats" id="stats" style="display:none;">📊 <span id="statsText"></span></div>
+
+    <!-- 🔑 API с исправленным load= (без пробелов!) -->
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=1acc7169-ac27-4336-8219-5caedc3b9b33&load=package.full,route"></script>
+    
+    <script>
+        let myMap, routeMode = false, routePoints = [], markers = [], currentRoute = null;
+
+        ymaps.ready(init);
+
+        function init() {
+            myMap = new ymaps.Map('map', {
+                center: [55.751244, 37.618423],
+                zoom: 10,
+                controls: ['zoomControl', 'typeSelector', 'fullscreenControl']
+            });
+
+            // Проверка модуля route
+            if (typeof ymaps.route !== 'function') {
+                showMessage('❌ Модуль route не загружен!');
+                console.error('ymaps.route is not a function');
+                return;
+            }
+
+            myMap.events.add('click', function(e) {
+                if (!routeMode) {
+                    showMessage('⚠️ Сначала нажмите «Начать маршрут»');
+                    return;
+                }
+                addPointToRoute(e.get('coords'));
+            });
+
+            console.log('✅ Карта и модуль route загружены');
+        }
+
+        function startRouteMode() {
+            resetRoute();
+            routeMode = true;
+            document.getElementById('btnRoute').classList.add('active');
+            showMessage('📍 Кликните по карте — точка 1');
+        }
+
+        function addPoint() {
+            if (!routeMode) { showMessage('⚠️ Сначала нажмите «Начать маршрут»'); return; }
+            addPointToRoute(myMap.getCenter());
+            myMap.setZoom(myMap.getZoom() - 1);
+        }
+
+        function addPointToRoute(coords) {
+            routePoints.push(coords);
+            const preset = routePoints.length === 1 ? 'islands#greenCircleIcon' : 'islands#blueCircleIcon';
+            const marker = new ymaps.Placemark(coords, {
+                hintContent: 'Точка ' + routePoints.length
+            }, { preset: preset });
+            markers.push(marker);
+            myMap.geoObjects.add(marker);
+            showMessage(`📍 Точка ${routePoints.length} добавлена. ${routePoints.length >= 2 ? 'Можно строить!' : 'Добавьте ещё точку.'}`);
+            if (routePoints.length >= 2) buildRouteNow();
+        }
+
+        // 🔹 ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОСТРОЕНИЯ МАРШРУТА
+        function buildRouteNow() {
+            if (routePoints.length < 2) { showMessage('❌ Нужно минимум 2 точки!'); return; }
+            showMessage('🚧 Строю маршрут...');
+            if (currentRoute) myMap.geoObjects.remove(currentRoute);
+            
+            ymaps.route(routePoints, { mapStateAutoApply: true, results: true })
+            .then(function(route) {
+                currentRoute = route;
+                myMap.geoObjects.add(route);
+                
+                // 🔹 БЕЗОПАСНЫЙ ДОСТУП К СВОЙСТВАМ
+                const distanceObj = route.properties.get('distance');
+                const durationObj = route.properties.get('duration');
+                const distance = distanceObj?.text || '—';
+                const duration = durationObj?.text || '—';
+                
+                document.getElementById('stats').style.display = 'block';
+                document.getElementById('statsText').textContent = 
+                    `📏 ${distance} | ⏱️ ${duration} | 🔢 ${routePoints.length} точек`;
+                showMessage('✅ Маршрут построен!');
+                
+                const bounds = route.properties.get('boundedBox');
+                if (bounds) {
+                    myMap.setBounds(bounds, { checkZoomRange: true, duration: 500 });
+                }
+                console.log('📦 Route properties:', route.properties._data);
+            })
+            .catch(function(error) {
+                console.error('❌ Ошибка:', error);
+                showMessage('❌ Ошибка: ' + (error.message || 'Не удалось построить'));
+            });
+        }
+
+        function resetRoute() {
+            routeMode = false; routePoints = [];
+            document.getElementById('btnRoute').classList.remove('active');
+            if (currentRoute) myMap.geoObjects.remove(currentRoute);
+            markers.forEach(m => myMap.geoObjects.remove(m));
+            markers = []; currentRoute = null;
+            document.getElementById('stats').style.display = 'none';
+            showMessage('🔄 Сброшено. Нажмите «Начать маршрут»');
+        }
+
+        function clearAll() { resetRoute(); myMap.geoObjects.removeAll(); showMessage('🗑️ Очищено'); }
+        function showMessage(text) { document.getElementById('info').textContent = text; }
+    </script>
+</body>
+</html>
